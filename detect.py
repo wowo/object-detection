@@ -21,8 +21,15 @@ tf.compat.v1.enable_eager_execution()
 PUSHBULLET_API_KEY = os.environ.get('PUSHBULLET_API_KEY', None)
 CAMERA_IMAGE = 'https://pihome.sznapka.pl/camera/auto.jpg'
 
+EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink']
+ROOT_PATH = '/var/www/sznapka.pl/detection/'
+NOTIFICATION_HOST = 'https://sznapka.pl/'
+NIGHT_HOURS = range(5, 21)
+THRESHOLD = .5
+MAX_AREA = .2
 
-def send_notification(title, body, link, api_key, latest_notification):
+
+def send_notification(title: str,  body: str, link: str, api_key: str, latest_notification: datetime) -> datetime:
     if latest_notification and datetime.now() - timedelta(seconds=60) < latest_notification:
         return latest_notification
 
@@ -36,6 +43,16 @@ def send_notification(title, body, link, api_key, latest_notification):
     requests.post('https://api.pushbullet.com/v2/pushes', data=data, headers=headers)
     logging.info('Sent notification with {0}'.format(link))
     return datetime.now()
+
+
+def check_area(orig_width: float, orig_height: float, box: list, detected_class: str) -> bool:
+    area = (orig_height * box[0] - orig_height * box[2]) * (orig_width * box[1] - orig_width * box[3])
+    percentage = area / (orig_height * orig_width)
+    if percentage > MAX_AREA:
+        logging.error('Box area is {:.2f}% for {} - ignoring'.format(percentage * 100, detected_class))
+        return False
+    else:
+        return True
 
 
 MODEL_NAME = 'ssdlite_mobilenet_v2_coco_2018_05_09'
@@ -66,17 +83,11 @@ num_detections = detection_graph.get_tensor_by_name('num_detections:0')
 logging.info('All initialization done')
 notification = None
 
-excluded_classes = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock']
-rootpath = '/var/www/sznapka.pl/'
-notification_host = 'https://sznapka.pl/'
-night_hours = range(5, 21)
-THRESHOLD = .5
-
 while True:
     # for path in glob.glob('/tmp/w*'):
     path = '/tmp/camera.jpg'
     logging.info('Fetching image to {}'.format(path))
-    outpath = 'detection/camera-detected-{}.jpg'.format(datetime.now().strftime('%Y%m%d_%H%M'))
+    outpath = 'camera-detected-{}.jpg'.format(datetime.now().strftime('%Y%m%d_%H%M'))
 
     try:
         r = requests.get(CAMERA_IMAGE)
@@ -85,7 +96,9 @@ while True:
         with open(path, 'wb') as f:
             f.write(r.content)
 
-        image = np.array(Image.open(path))
+        pil_image = Image.open(path)
+        width, height = pil_image.size
+        image = np.array(pil_image)
         input_tensor = tf.convert_to_tensor(image)
         input_tensor = input_tensor[tf.newaxis, ...]
 
@@ -97,7 +110,7 @@ while True:
         for idx, val in enumerate(scores[0]):
             class_name = category_index[classes[0][idx]]['name']
             if val > THRESHOLD:
-                if class_name in excluded_classes:
+                if class_name in EXCLUDED or not check_area(width, height, boxes[0][idx], class_name):
                     scores[0][idx] = 0
                     continue
                 else:
@@ -107,7 +120,7 @@ while True:
                                                                                     boxes[0][idx]))
 
         if len(current_classes) > 0:
-            cv2.imwrite(rootpath + outpath.replace('detected', 'original'), image)
+            cv2.imwrite(ROOT_PATH + outpath.replace('detected', 'original'), image)
             vis_util.visualize_boxes_and_labels_on_image_array(
                 image,
                 np.squeeze(boxes),
@@ -117,17 +130,17 @@ while True:
                 use_normalized_coordinates=True,
                 line_thickness=1,
                 min_score_thresh=THRESHOLD)
-            cv2.imwrite(rootpath + outpath, image)
+            cv2.imwrite(ROOT_PATH + outpath, image)
             detection_msg = ', '.join(map(lambda x: "{}: {:.0f}%".format(x[0], x[1] * 100), current_classes))
             logging.info('Wrote to {0}'.format(outpath))
             if PUSHBULLET_API_KEY:
                 notification = send_notification('Detected: {}'.format(detection_msg), datetime.now().strftime('%T'),
-                                                 notification_host + outpath, PUSHBULLET_API_KEY, notification)
+                                                 NOTIFICATION_HOST + outpath, PUSHBULLET_API_KEY, notification)
 
         hour = int(datetime.now().strftime('%H'))
-        if hour not in night_hours:
+        if hour not in NIGHT_HOURS:
             logging.info('It is {} - sleeping for 10 minutes'.format(datetime.now().strftime('%H:%M')))
             time.sleep(60 * 10)
     except Exception as err:
         exception_type = type(err).__name__
-        logging.error("{} occured {}".format(exception_type, str(err)))
+        logging.error("{} occurred {}".format(exception_type, str(err)))
