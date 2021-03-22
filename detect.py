@@ -86,7 +86,7 @@ notification = None
 while True:
     # for path in glob.glob('/tmp/w*'):
     path = '/tmp/camera.jpg'
-    logging.info('Fetching image to {}'.format(path))
+    logging.debug('Fetching image to {}'.format(path))
     outpath = 'camera-detected-{}.jpg'.format(datetime.now().strftime('%Y%m%d_%H%M'))
 
     try:
