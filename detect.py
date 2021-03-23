@@ -20,6 +20,7 @@ logging.info('Imports done')
 tf.compat.v1.enable_eager_execution()
 PUSHBULLET_API_KEY = os.environ.get('PUSHBULLET_API_KEY', None)
 CAMERA_IMAGE = 'https://pihome.sznapka.pl/camera/auto.jpg'
+# CAMERA_IMAGE = 'https://sznapka.pl/detection/camera-original-20210322_1820.jpg'
 
 EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink']
 ROOT_PATH = '/var/www/sznapka.pl/detection/'
@@ -40,8 +41,8 @@ def send_notification(title: str,  body: str, link: str, api_key: str, latest_no
         'url': link
     }
     headers = {'Access-Token': api_key}
-    requests.post('https://api.pushbullet.com/v2/pushes', data=data, headers=headers)
-    logging.info('Sent notification with {0}'.format(link))
+    r = requests.post('https://api.pushbullet.com/v2/pushes', data=data, headers=headers)
+    logging.info('Sent notification with {}: {}'.format(link, r.status_code))
     return datetime.now()
 
 
@@ -86,7 +87,6 @@ notification = None
 while True:
     # for path in glob.glob('/tmp/w*'):
     path = '/tmp/camera.jpg'
-    logging.debug('Fetching image to {}'.format(path))
     outpath = 'camera-detected-{}.jpg'.format(datetime.now().strftime('%Y%m%d_%H%M'))
 
     try:
@@ -143,4 +143,8 @@ while True:
             time.sleep(60 * 10)
     except Exception as err:
         exception_type = type(err).__name__
-        logging.error("{} occurred {}".format(exception_type, str(err)))
+        msg = "{} occurred {}, response length API {}".format(exception_type, str(err), len(r.content))
+        if isinstance(err, ValueError) and 'Unsupported object type JpegImageFile' in str(err):
+            logging.debug(msg)
+        else:
+            logging.error(msg)
