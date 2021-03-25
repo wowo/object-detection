@@ -6,12 +6,17 @@ logging.info('Starting')
 
 from PIL import Image
 from datetime import datetime, timedelta
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 from utils import label_map_util
 from utils import visualization_utils as vis_util
 import cv2
 import numpy as np
 import os
 import requests
+import smtplib
+import ssl
 import tensorflow as tf
 import time
 
@@ -19,15 +24,41 @@ logging.info('Imports done')
 
 tf.compat.v1.enable_eager_execution()
 PUSHBULLET_API_KEY = os.environ.get('PUSHBULLET_API_KEY', None)
+EMAIL_CREDENTIALS = os.environ.get('EMAIL_CREDENTIALS', None)
+EMAIL_SERVER = os.environ.get('EMAIL_SERVER', 'smtp.gmail.com:587')
+EMAIL_SENDER = 'mailer@sznapka.pl'
+EMAIL_RECIPIENT = 'wojtek@sznapka.pl'
 CAMERA_IMAGE = 'https://pihome.sznapka.pl/camera/auto.jpg'
 # CAMERA_IMAGE = 'https://sznapka.pl/detection/camera-original-20210322_1820.jpg'
 
-EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink']
+EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink', 'bird']
 ROOT_PATH = '/var/www/sznapka.pl/detection/'
 NOTIFICATION_HOST = 'https://sznapka.pl/'
 NIGHT_HOURS = range(5, 21)
 THRESHOLD = .5
-MAX_AREA = .2
+MAX_AREA = .15
+
+
+def send_email(title: str,  body: str, image: str, latest_notification: datetime) -> datetime:
+    message = MIMEMultipart('mixed')
+    message['From'] = 'Kamera <{}>'.format(EMAIL_SENDER)
+    message['To'] = EMAIL_RECIPIENT
+    message['Subject'] = title
+    body = MIMEText(body, 'html')
+    message.attach(body)
+
+    with open(image, 'rb') as img:
+        p = MIMEApplication(img.read(), _subtype='jpg')
+        p.add_header('Content-Disposition', 'attachment; filename=camera.jpg')
+        message.attach(p)
+
+    server, port = EMAIL_SERVER.split(':')
+    user, passwd = EMAIL_CREDENTIALS.split(':')
+    with smtplib.SMTP(server, port) as server:
+        server.starttls()
+        server.login(user, passwd)
+        server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, message.as_string())
+        server.quit()
 
 
 def send_notification(title: str,  body: str, link: str, api_key: str, latest_notification: datetime) -> datetime:
@@ -46,14 +77,9 @@ def send_notification(title: str,  body: str, link: str, api_key: str, latest_no
     return datetime.now()
 
 
-def check_area(orig_width: float, orig_height: float, box: list, detected_class: str) -> bool:
+def get_area_percentage(orig_width: float, orig_height: float, box: list, detected_class: str) -> float:
     area = (orig_height * box[0] - orig_height * box[2]) * (orig_width * box[1] - orig_width * box[3])
-    percentage = area / (orig_height * orig_width)
-    if percentage > MAX_AREA:
-        logging.error('Box area is {:.2f}% for {} - ignoring'.format(percentage * 100, detected_class))
-        return False
-    else:
-        return True
+    return area / (orig_height * orig_width)
 
 
 MODEL_NAME = 'ssdlite_mobilenet_v2_coco_2018_05_09'
@@ -87,7 +113,7 @@ notification = None
 while True:
     # for path in glob.glob('/tmp/w*'):
     path = '/tmp/camera.jpg'
-    outpath = 'camera-detected-{}.jpg'.format(datetime.now().strftime('%Y%m%d_%H%M'))
+    outpath = 'camera-detected-{}.jpg'.format(datetime.now().strftime('%Y%m%d_%H%M%S'))
 
     try:
         r = requests.get(CAMERA_IMAGE)
@@ -110,11 +136,16 @@ while True:
         for idx, val in enumerate(scores[0]):
             class_name = category_index[classes[0][idx]]['name']
             if val > THRESHOLD:
-                if class_name in EXCLUDED or not check_area(width, height, boxes[0][idx], class_name):
+                area =  get_area_percentage(width, height, boxes[0][idx], class_name)
+                if class_name in EXCLUDED:
+                    scores[0][idx] = 0
+                    continue
+                elif area > MAX_AREA:
+                    logging.error('Box area is {:.2f}% for {} - ignoring'.format(percentage * 100, detected_class))
                     scores[0][idx] = 0
                     continue
                 else:
-                    current_classes.append((class_name, val))
+                    current_classes.append((class_name, val, area))
                     logging.warning(
                         'Found at index {} class: {} with {:.0f}% boxes: {}'.format(idx, class_name, val * 100,
                                                                                     boxes[0][idx]))
@@ -131,11 +162,15 @@ while True:
                 line_thickness=1,
                 min_score_thresh=THRESHOLD)
             cv2.imwrite(ROOT_PATH + outpath, image)
-            detection_msg = ', '.join(map(lambda x: "{}: {:.0f}%".format(x[0], x[1] * 100), current_classes))
+            print(current_classes)
+            detection_msg = ', '.join(map(lambda x: "{}: {:.0f}% area: {:.3f}%".format(x[0], x[1] * 100, x[2] * 100), current_classes))
             logging.info('Wrote to {0}'.format(outpath))
             if PUSHBULLET_API_KEY:
                 notification = send_notification('Detected: {}'.format(detection_msg), datetime.now().strftime('%T'),
                                                  NOTIFICATION_HOST + outpath, PUSHBULLET_API_KEY, notification)
+            if EMAIL_CREDENTIALS:
+                notification = send_email('Detected: {}'.format(detection_msg), datetime.now().strftime('%T'),
+                                          ROOT_PATH + outpath, notification)
 
         hour = int(datetime.now().strftime('%H'))
         if hour not in NIGHT_HOURS:
