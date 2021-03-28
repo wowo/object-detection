@@ -36,7 +36,7 @@ ROOT_PATH = '/var/www/sznapka.pl/detection/'
 NOTIFICATION_HOST = 'https://sznapka.pl/'
 NIGHT_HOURS = range(5, 21)
 THRESHOLD = .5
-MAX_AREA = .15
+MAX_AREA = .10
 
 
 def send_email(title: str,  body: str, image: str, latest_notification: datetime) -> datetime:
@@ -118,7 +118,7 @@ while True:
     try:
         r = requests.get(CAMERA_IMAGE)
         if r.status_code != 200:
-            raise "Error {0}: {1}".format(r.status_code, r.content)
+            raise Exception("Error {0}: {1}".format(r.status_code, r.content))
         with open(path, 'wb') as f:
             f.write(r.content)
 
