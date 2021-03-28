@@ -16,7 +16,6 @@ import numpy as np
 import os
 import requests
 import smtplib
-import ssl
 import tensorflow as tf
 import time
 
@@ -31,7 +30,7 @@ EMAIL_RECIPIENT = 'wojtek@sznapka.pl'
 CAMERA_IMAGE = 'https://pihome.sznapka.pl/camera/auto.jpg'
 # CAMERA_IMAGE = 'https://sznapka.pl/detection/camera-original-20210322_1820.jpg'
 
-EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink', 'bird']
+EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink', 'bird', 'airplane']
 ROOT_PATH = '/var/www/sznapka.pl/detection/'
 NOTIFICATION_HOST = 'https://sznapka.pl/'
 NIGHT_HOURS = range(5, 21)
@@ -39,7 +38,9 @@ THRESHOLD = .5
 MAX_AREA = .10
 
 
-def send_email(title: str,  body: str, image: str, latest_notification: datetime) -> datetime:
+def send_email(title: str,  body: str, img: str, latest_notification: datetime) -> datetime:
+    if latest_notification and datetime.now() - timedelta(seconds=60) < latest_notification:
+        return latest_notification
     message = MIMEMultipart('mixed')
     message['From'] = 'Kamera <{}>'.format(EMAIL_SENDER)
     message['To'] = EMAIL_RECIPIENT
@@ -47,7 +48,7 @@ def send_email(title: str,  body: str, image: str, latest_notification: datetime
     body = MIMEText(body, 'html')
     message.attach(body)
 
-    with open(image, 'rb') as img:
+    with open(img, 'rb') as img:
         p = MIMEApplication(img.read(), _subtype='jpg')
         p.add_header('Content-Disposition', 'attachment; filename=camera.jpg')
         message.attach(p)
@@ -59,6 +60,8 @@ def send_email(title: str,  body: str, image: str, latest_notification: datetime
         server.login(user, passwd)
         server.sendmail(EMAIL_SENDER, EMAIL_RECIPIENT, message.as_string())
         server.quit()
+
+    return datetime.now()
 
 
 def send_notification(title: str,  body: str, link: str, api_key: str, latest_notification: datetime) -> datetime:
@@ -72,14 +75,14 @@ def send_notification(title: str,  body: str, link: str, api_key: str, latest_no
         'url': link
     }
     headers = {'Access-Token': api_key}
-    r = requests.post('https://api.pushbullet.com/v2/pushes', data=data, headers=headers)
-    logging.info('Sent notification with {}: {}'.format(link, r.status_code))
+    req = requests.post('https://api.pushbullet.com/v2/pushes', data=data, headers=headers)
+    logging.info('Sent notification with {}: {}'.format(link, req.status_code))
     return datetime.now()
 
 
-def get_area_percentage(orig_width: float, orig_height: float, box: list, detected_class: str) -> float:
-    area = (orig_height * box[0] - orig_height * box[2]) * (orig_width * box[1] - orig_width * box[3])
-    return area / (orig_height * orig_width)
+def get_area_percentage(orig_width: float, orig_height: float, box: list) -> float:
+    box_area = (orig_height * box[0] - orig_height * box[2]) * (orig_width * box[1] - orig_width * box[3])
+    return box_area / (orig_height * orig_width)
 
 
 MODEL_NAME = 'ssdlite_mobilenet_v2_coco_2018_05_09'
@@ -136,12 +139,12 @@ while True:
         for idx, val in enumerate(scores[0]):
             class_name = category_index[classes[0][idx]]['name']
             if val > THRESHOLD:
-                area =  get_area_percentage(width, height, boxes[0][idx], class_name)
+                area = get_area_percentage(width, height, boxes[0][idx])
                 if class_name in EXCLUDED:
                     scores[0][idx] = 0
                     continue
                 elif area > MAX_AREA:
-                    logging.error('Box area is {:.2f}% for {} - ignoring'.format(percentage * 100, detected_class))
+                    logging.error('Box area is {:.2f}% for {} - ignoring'.format(area * 100, class_name))
                     scores[0][idx] = 0
                     continue
                 else:
@@ -178,7 +181,7 @@ while True:
             time.sleep(60 * 10)
     except Exception as err:
         exception_type = type(err).__name__
-        msg = "{} occurred {}, response length API {}".format(exception_type, str(err), len(r.content))
+        msg = "{} occurred {}".format(exception_type, str(err))
         if isinstance(err, ValueError) and 'Unsupported object type JpegImageFile' in str(err):
             logging.debug(msg)
         else:
