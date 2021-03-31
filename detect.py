@@ -30,7 +30,7 @@ EMAIL_RECIPIENT = 'wojtek@sznapka.pl'
 CAMERA_IMAGE = 'https://pihome.sznapka.pl/camera/auto.jpg'
 # CAMERA_IMAGE = 'https://sznapka.pl/detection/camera-original-20210322_1820.jpg'
 
-EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink', 'bird', 'airplane']
+EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink', 'bird', 'airplane', 'bus']
 ROOT_PATH = '/var/www/sznapka.pl/detection/'
 NOTIFICATION_HOST = 'https://sznapka.pl/'
 NIGHT_HOURS = range(5, 21)
@@ -166,11 +166,11 @@ while True:
                 min_score_thresh=THRESHOLD)
             cv2.imwrite(ROOT_PATH + outpath, image)
             print(current_classes)
-            detection_msg = ', '.join(map(lambda x: "{}: {:.0f}% area: {:.3f}%".format(x[0], x[1] * 100, x[2] * 100), current_classes))
+            detection_msg = ', '.join(map(lambda x: "{}: {:.0f}% area: {:.1}%".format(x[0], x[1] * 100, x[2] * 100), current_classes))
             logging.info('Wrote to {0}'.format(outpath))
-            if PUSHBULLET_API_KEY:
-                notification = send_notification('Detected: {}'.format(detection_msg), datetime.now().strftime('%T'),
-                                                 NOTIFICATION_HOST + outpath, PUSHBULLET_API_KEY, notification)
+            #if PUSHBULLET_API_KEY:
+            #    notification = send_notification('Detected: {}'.format(detection_msg), datetime.now().strftime('%T'),
+            #                                     NOTIFICATION_HOST + outpath, PUSHBULLET_API_KEY, notification)
             if EMAIL_CREDENTIALS:
                 notification = send_email('Detected: {}'.format(detection_msg), datetime.now().strftime('%T'),
                                           ROOT_PATH + outpath, notification)
