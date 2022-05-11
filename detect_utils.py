@@ -40,5 +40,6 @@ def box_contains_exluded_points(orig_width: float, orig_height: float, box: list
         if relative_x >= box[1] and relative_x <= box[3] and relative_y >= box[0] and relative_y <= box[2]:
             return True
     return False
-#self.assertTrue(box_contains_exluded_points(1280, 960, [0.15284267, 0.5236471, 0.22450888, 0.59080607], [[710,180]]))
-#self.assertFalse(box_contains_exluded_points(1280, 960, [0.15284267, 0.5236471, 0.22450888, 0.59080607], [[400,600]]))
+
+def get_center_point(orig_width: float, orig_height: float, box: list) -> list:
+    return [round(orig_width * ((box[3] + box[1]) / 2)), round(orig_height * ((box[2] + box[0]) / 2))]

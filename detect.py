@@ -4,7 +4,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='[%(relativeCreated)d] %(asctime)s :%(levelname)s: %(message)s')
 logging.info('Starting')
 
-from detect_utils import box_contains_exluded_points, send_email, get_area_percentage
+from detect_utils import box_contains_exluded_points, send_email, get_area_percentage, get_center_point
 
 from PIL import Image
 from datetime import datetime, timedelta
@@ -30,11 +30,11 @@ EMAIL_RECIPIENT = 'wojtek@sznapka.pl,piotr@sznapka.pl'
 CAMERA_IMAGE = 'https://pihome.sznapka.pl/camera/auto.jpg'
 #CAMERA_IMAGE = 'https://sznapka.pl/detection/camera-detected-20220206_1146.jpg'
 
-EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink', 'bird', 'airplane', 'bus', 'giraffe', 'traffic light']
-EXCLUDED_POINTS = [[710,180]] # wykluczone punkty środkowe, np załamanie bramy Piora, które jest klasyfikowane jako auto
+EXCLUDED = ['train', 'umbrella', 'kite', 'boat', 'zebra', 'clock', 'sink', 'bird', 'airplane', 'bus', 'giraffe', 'traffic light', 'surfboard']
+EXCLUDED_POINTS = [[710,180], [560,60], [420, 100],  [640, 45],[640, 80], [640, 100], [699, 71], [585, 81]] # wykluczone punkty środkowe, np załamanie bramy Piora, które jest klasyfikowane jako auto
 ROOT_PATH = '/var/www/sznapka.pl/detection/'
 NOTIFICATION_HOST = 'https://sznapka.pl/'
-NIGHT_HOURS = range(5, 23)
+NIGHT_HOURS = range(4, 23)
 THRESHOLD = .6
 MAX_AREA = .1
 
@@ -125,7 +125,7 @@ while True:
             cv2.imwrite(ROOT_PATH + outpath, image)
             print(current_classes)
             detection_title  = 'Detected: ' + ', '.join(map(lambda x: x[0], current_classes))
-            detection_msg = ', '.join(map(lambda x: "{}: {:.0f}% area: {:.1}%, box: {}".format(x[0], x[1] * 100, x[2] * 100, x[3]), current_classes))
+            detection_msg = ', '.join(map(lambda x: "{}: {:.0f}% area: {:.1}%, box: {}, center point: {}".format(x[0], x[1] * 100, x[2] * 100, x[3], get_center_point(width, height, x[3])), current_classes))
             logging.info('Wrote to {0}'.format(outpath))
             if EMAIL_CREDENTIALS:
                 notification = send_email(EMAIL_SENDER, EMAIL_RECIPIENT, EMAIL_SERVER, EMAIL_CREDENTIALS,
